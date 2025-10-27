@@ -148,7 +148,7 @@ solver1 = NonlinearVariationalSolver(pb1, solver_parameters = sp)
 pb2 = NonlinearVariationalProblem(F2, z2, bcs)
 solver2 = NonlinearVariationalSolver(pb2, solver_parameters = sp)
 
-q_init = 0.0
+q_init = 1.0
 pvd = VTKFile("output/drlm.pvd")
 pvd.write(u_sol, p_sol, time=float(t))
 
