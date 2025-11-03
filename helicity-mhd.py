@@ -17,7 +17,6 @@ mesh = UnitCubeMesh(L, L, L)
 (x, y, z0) = SpatialCoordinate(mesh)
 
 Vg = VectorFunctionSpace(mesh, "CG", 2)
-Vg_ = FunctionSpace(mesh, "CG", 2)
 Q = FunctionSpace(mesh, "CG", 1)
 
 #(u, p, w, A, B)
@@ -47,7 +46,7 @@ t = Constant(0)
 T = 1.0
 
 # Lagrange multiplier
-theta = 1.0
+theta = 100.0
 
 # solution
 u_sol = Function(Vg, name="Velocity")
@@ -58,23 +57,32 @@ A_sol = Function(Vg, name="MagneticPotential")
 
 
 #initial condition
-ux = y **2 * (1 - y) * z0 **2 * (1 - z0)
-uy = x**2 * (1-x) * z0 **2 
-uz = x **2 * (1-x) * y **2 * (1-y)
+#ux = y **2 * (1 - y) * z0 **2 * (1 - z0)
+#uy = x**2 * (1-x) * z0 **2 
+#uz = x **2 * (1-x) * y **2 * (1-y)
 
-Bx = y **2 * (1 - z0) **2 
-By = (1-x) **2 * z0 ** 2
-Bz = x **2 * (1-y) ** 2
+#Bx = y **2 * (1 - z0) **2 
+#By = (1-x) **2 * z0 ** 2
+#Bz = x **2 * (1-y) ** 2
 
-u_ex = as_vector([ux, uy, uz]) 
-B_ex = as_vector([Bx, By, Bz]) 
+#u_ex = as_vector([ux, uy, uz]) 
+#B_ex = as_vector([Bx, By, Bz]) 
+# initial condition, Mao-Xi-2025
+def g(x):
+    return 32 * x**3 * (x - 1) ** 3
 
-z1_prev.sub(0).interpolate(u_ex)
+A_ex = as_vector([10 * y*g(x) * g(y) * g(z0), -10 * x*g(x)*g(y)*g(z0), 10 * g(x)*g(y)*g(z0)])
+P_ex = sin(2*pi*x) * sin(2*pi*y) * sin(2*pi*z0)
+B_ex = curl(A_ex)
+
+z1_prev.sub(1).interpolate(P_ex)    
+z1_prev.sub(3).interpolate(A_ex)
 z1_prev.sub(4).interpolate(B_ex)
 
+
 gamma = Constant(100)
-nu = Constant(0.001)
-eta = Constant(0.001)
+nu = Constant(0)
+eta = Constant(0)
 s = Constant(1)
 
 # u1 p1, w1, A1, B1
@@ -102,7 +110,7 @@ F2 =(
         #u
       inner(u2/dt, u2t) * dx
     + nu * inner(curl(u2), curl(u2t)) * dx
-    + inner(cross(w2, u2), u2t) * dx
+    + inner(cross(w1p, u1p), u2t) * dx # Linearized term
     - s * inner(cross(curl(B1p), B1p), u2t) * dx # Linearized term
     
     + inner(grad(p2), u2t) * dx
@@ -136,13 +144,13 @@ sp = lu
 
 def compute_A(u2, B2, u1p, w1p, B1p):
     T1 = assemble(-0.5 * inner(u2, u2) * dx)/float(dt) - assemble(s * 0.5 * inner(B2, B2) * dx)/float(dt) 
-    T2 = theta/float(dt) + assemble(inner(cross(w1p, u1p), u2) * dx) 
+    T2 = theta/float(dt) - assemble(inner(cross(w1p, u1p), u2) * dx) 
     T3 = assemble(s* inner(cross(u1p, B1p), B2)* dx)
     return T1 + T2 + T3
 
 def compute_B(u1, u2, u1p, B1, B2, B1p):
-    T1 = assemble(-inner(u2/dt, u2)* dx) - assemble(s/dt * inner(B1, B2) * dx) + assemble(1/dt * inner(u1p, u2) * dx) 
-    T2 = assemble(s/dt * inner(B1p, B2)*dx) - assemble(s/dt * inner(cross(w1p, u1p), B2)*dx)
+    T1 = assemble(-inner(u1/dt, u2)* dx) - assemble(s/dt * inner(B1, B2) * dx) + assemble(1/dt * inner(u1p, u2) * dx) 
+    T2 = assemble(s/dt * inner(B1p, B2)*dx) - assemble(inner(cross(w1p, u1p), u1)*dx)
     T3 = assemble(s * inner(cross(u1p, B1p), B1)*dx)
     return T1 + T2 + T3
 
@@ -173,14 +181,15 @@ def energy_uB(u, B):
 def compute_cross_helicity(u, B):  
     return assemble(inner(u, B) * dx)
 
-def compute_helicity(A):
-    return assemble(inner(A, curl(A)) * dx)
+def compute_helicity(A, B):
+    return assemble(inner(A, B) * dx)
 
 
 bcs = [
-
     DirichletBC(Z.sub(0), 0, "on_boundary"),
     DirichletBC(Z.sub(2), 0, "on_boundary"),
+    DirichletBC(Z.sub(3), A_ex, "on_boundary"),
+    DirichletBC(Z.sub(4), B_ex, "on_boundary"),
 ]
 
 pb1 = NonlinearVariationalProblem(F1, z1, bcs)
@@ -213,11 +222,11 @@ while (float(t) < float(T-dt)+1.0e-10):
     u_sol.assign(u1 + q_const * u2)
     p_sol.assign(p1 + q_const * p2)
     B_sol.assign(B1 + q_const * B2)
-    w_sol.assign(w1 + q_const * w1)
-    A_sol.assign(A1 + q_const * A1)
+    w_sol.assign(w1 + q_const * w2)
+    A_sol.assign(A1 + q_const * A2)
     energy = energy_uB(u_sol, B_sol)
     helicity_c = compute_cross_helicity(u_sol, B_sol)
-    helicity_m = compute_helicity(A_sol)
+    helicity_m = compute_helicity(A_sol, B_sol)
 
     if mesh.comm.rank == 0:
         print(RED % f"t={float(t)}, energy={energy}, crossHelicity={helicity_c}, Helicity={helicity_m}")
