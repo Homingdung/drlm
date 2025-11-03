@@ -71,18 +71,22 @@ A_sol = Function(Vg, name="MagneticPotential")
 def g(x):
     return 32 * x**3 * (x - 1) ** 3
 
+phi_ex = as_vector([y*g(x)*g(y) * g(z0), -x*g(x)*g(y)*g(z0), g(x)*g(y)*g(z0)])
+u_ex = curl(phi_ex)
 A_ex = as_vector([10 * y*g(x) * g(y) * g(z0), -10 * x*g(x)*g(y)*g(z0), 10 * g(x)*g(y)*g(z0)])
 P_ex = sin(2*pi*x) * sin(2*pi*y) * sin(2*pi*z0)
 B_ex = curl(A_ex)
+w_ex = curl(u_ex)
 
+z1_prev.sub(0).interpolate(u_ex)    
 z1_prev.sub(1).interpolate(P_ex)    
+z1_prev.sub(2).interpolate(w_ex)    
 z1_prev.sub(3).interpolate(A_ex)
 z1_prev.sub(4).interpolate(B_ex)
 
-
 gamma = Constant(100)
-nu = Constant(0)
-eta = Constant(0)
+nu = Constant(1e-8)
+eta = Constant(1e-8)
 s = Constant(1)
 
 # u1 p1, w1, A1, B1
@@ -91,6 +95,7 @@ F1 =(
       inner((u1 - u1p)/dt, u1t) * dx
     + nu * inner(curl(u1), curl(u1t)) * dx
     + inner(grad(p1), u1t) * dx
+    + gamma * inner(div(u1), div(u1t)) * dx
     #p
     + inner(u1, grad(p1t)) * dx
     #w
@@ -112,7 +117,8 @@ F2 =(
     + nu * inner(curl(u2), curl(u2t)) * dx
     + inner(cross(w1p, u1p), u2t) * dx # Linearized term
     - s * inner(cross(curl(B1p), B1p), u2t) * dx # Linearized term
-    
+    + gamma * inner(div(u2), div(u2t)) * dx
+
     + inner(grad(p2), u2t) * dx
     #p
     + inner(u2, grad(p2t)) * dx
@@ -175,6 +181,7 @@ def compute_root(A, B, C):
     else:
         return None 
 
+
 def energy_uB(u, B):
     return 0.5 * assemble(inner(u, u) * dx) + assemble(0.5 * s * inner(B, B) * dx)
 
@@ -184,10 +191,13 @@ def compute_cross_helicity(u, B):
 def compute_helicity(A, B):
     return assemble(inner(A, B) * dx)
 
+def compute_div(u):
+    return norm(div(u), "L2")
+
 
 bcs = [
-    DirichletBC(Z.sub(0), 0, "on_boundary"),
-    DirichletBC(Z.sub(2), 0, "on_boundary"),
+    DirichletBC(Z.sub(0), u_ex, "on_boundary"),
+    DirichletBC(Z.sub(2), w_ex, "on_boundary"),
     DirichletBC(Z.sub(3), A_ex, "on_boundary"),
     DirichletBC(Z.sub(4), B_ex, "on_boundary"),
 ]
@@ -201,6 +211,12 @@ solver2 = NonlinearVariationalSolver(pb2, solver_parameters = sp)
 q_init = 1.0
 pvd = VTKFile("output/drlm.pvd")
 pvd.write(u_sol, p_sol, w_sol, A_sol, B_sol, time=float(t))
+
+data_filename = "data.csv"
+if mesh.comm.rank == 0:
+    with open(data_filename, "w", newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(["time", "energy", "helicity_f" ,"helicity_m", "helicity_c", "divu", "divB"])
 
 while (float(t) < float(T-dt)+1.0e-10):
     t.assign(t+dt)
@@ -219,18 +235,29 @@ while (float(t) < float(T-dt)+1.0e-10):
       
     q = compute_root(A, B, C)
     q_const = Constant(q)
+
     u_sol.assign(u1 + q_const * u2)
     p_sol.assign(p1 + q_const * p2)
     B_sol.assign(B1 + q_const * B2)
     w_sol.assign(w1 + q_const * w2)
     A_sol.assign(A1 + q_const * A2)
+
     energy = energy_uB(u_sol, B_sol)
     helicity_c = compute_cross_helicity(u_sol, B_sol)
     helicity_m = compute_helicity(A_sol, B_sol)
+    helicity_f = compute_helicity(u_sol, w_sol)
+    divu = compute_div(u_sol)
+    divB = compute_div(B_sol)
 
     if mesh.comm.rank == 0:
-        print(RED % f"t={float(t)}, energy={energy}, crossHelicity={helicity_c}, Helicity={helicity_m}")
+        with open(data_filename, "a", newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([f"{float(t):.4f}", f"{energy}", f"{helicity_f}", f"{helicity_m}", f"{helicity_c}", f"{divu}", f"{divB}"])		
+    
+    if mesh.comm.rank == 0:
+        print(RED % f"t={float(t)}, energy={energy}, fluidHelicity={helicity_f}, crossHelicity={helicity_c}, magneticHelicity={helicity_m}, divu={divu}, divB={divB}")
     pvd.write(u_sol, p_sol, w_sol, A_sol, B_sol, time=float(t))
+
     z1_prev.assign(z1)
     z2_prev.assign(z2)
     q_init = q
