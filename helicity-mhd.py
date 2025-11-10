@@ -85,8 +85,8 @@ z1_prev.sub(3).interpolate(A_ex)
 z1_prev.sub(4).interpolate(B_ex)
 
 gamma = Constant(100)
-nu = Constant(1e-8)
-eta = Constant(1e-8)
+nu = Constant(0)
+eta = Constant(0)
 s = Constant(1)
 
 # u1 p1, w1, A1, B1
@@ -213,10 +213,12 @@ pvd = VTKFile("output/drlm.pvd")
 pvd.write(u_sol, p_sol, w_sol, A_sol, B_sol, time=float(t))
 
 data_filename = "data.csv"
+fieldnames = ["t", "energy" ,"helicity_f", "helicity_m", "helicity_c", "divu", "divB"]
 if mesh.comm.rank == 0:
     with open(data_filename, "w", newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(["time", "energy", "helicity_f" ,"helicity_m", "helicity_c", "divu", "divB"])
+        writer = csv.DictWriter(f, fieldnames = fieldnames)
+        writer.writeheader()  
+
 
 while (float(t) < float(T-dt)+1.0e-10):
     t.assign(t+dt)
@@ -250,9 +252,18 @@ while (float(t) < float(T-dt)+1.0e-10):
     divB = compute_div(B_sol)
 
     if mesh.comm.rank == 0:
+        row = {
+        "t": float(t),
+        "energy": float(energy),
+        "helicity_f": float(helicity_f),
+        "helicity_m": float(helicity_m),
+        "helicity_c": float(helicity_c),
+        "divu": float(divu),
+        "divB": float(divB),
+        }
         with open(data_filename, "a", newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([f"{float(t):.4f}", f"{energy}", f"{helicity_f}", f"{helicity_m}", f"{helicity_c}", f"{divu}", f"{divB}"])		
+            writer = csv.DictWriter(f, fieldnames = fieldnames)
+            writer.writerow(row)
     
     if mesh.comm.rank == 0:
         print(RED % f"t={float(t)}, energy={energy}, fluidHelicity={helicity_f}, crossHelicity={helicity_c}, magneticHelicity={helicity_m}, divu={divu}, divB={divB}")
