@@ -149,15 +149,15 @@ lu = {
 sp = lu
 
 def compute_A(u2, B2, u1p, w1p, B1p):
-    T1 = assemble(-0.5 * inner(u2, u2) * dx)/float(dt) - assemble(s * 0.5 * inner(B2, B2) * dx)/float(dt) 
-    T2 = theta/float(dt) - assemble(inner(cross(w1p, u1p), u2) * dx) 
-    T3 = assemble(s* inner(cross(u1p, B1p), B2)* dx)
+    T1 = assemble(0.5 * inner(u2, u2) * dx)/float(dt) + assemble(s * 0.5 * inner(B2, B2) * dx)/float(dt) 
+    T2 = theta/float(dt) + assemble(nu * inner(curl(u2), curl(u2))*dx) 
+    T3 = assemble(s * eta * inner(curl(B2), curl(B2)) * dx)
     return T1 + T2 + T3
 
 def compute_B(u1, u2, u1p, B1, B2, B1p):
-    T1 = assemble(-inner(u1/dt, u2)* dx) - assemble(s/dt * inner(B1, B2) * dx) + assemble(1/dt * inner(u1p, u2) * dx) 
-    T2 = assemble(s/dt * inner(B1p, B2)*dx) - assemble(inner(cross(w1p, u1p), u1)*dx)
-    T3 = assemble(s * inner(cross(u1p, B1p), B1)*dx)
+    T1 = assemble(-inner(u1/dt, u2)* dx) - assemble(s/dt * inner(B1, B2) * dx) 
+    T2 = -assemble(inner(cross(w1p, u1p), u1)*dx) + assemble(s * inner(cross(curl(B1p), B1p), u1) * dx)
+    T3 = assemble(s * inner(curl(cross(u1p, B1p)), B1)*dx) 
     return T1 + T2 + T3
 
 def compute_C(u1, u1p, p1p, B1, B1p, q):
@@ -213,7 +213,7 @@ pvd = VTKFile("output/drlm.pvd")
 pvd.write(u_sol, p_sol, w_sol, A_sol, B_sol, time=float(t))
 
 data_filename = "data.csv"
-fieldnames = ["t", "energy" ,"helicity_f", "helicity_m", "helicity_c", "divu", "divB"]
+fieldnames = ["t", "energy", "helicity_m", "helicity_c", "divu", "divB"]
 if mesh.comm.rank == 0:
     with open(data_filename, "w", newline='') as f:
         writer = csv.DictWriter(f, fieldnames = fieldnames)
@@ -247,7 +247,7 @@ while (float(t) < float(T-dt)+1.0e-10):
     energy = energy_uB(u_sol, B_sol)
     helicity_c = compute_cross_helicity(u_sol, B_sol)
     helicity_m = compute_helicity(A_sol, B_sol)
-    helicity_f = compute_helicity(u_sol, w_sol)
+    #helicity_f = compute_helicity(u_sol, w_sol)
     divu = compute_div(u_sol)
     divB = compute_div(B_sol)
 
@@ -255,7 +255,6 @@ while (float(t) < float(T-dt)+1.0e-10):
         row = {
         "t": float(t),
         "energy": float(energy),
-        "helicity_f": float(helicity_f),
         "helicity_m": float(helicity_m),
         "helicity_c": float(helicity_c),
         "divu": float(divu),
@@ -266,7 +265,7 @@ while (float(t) < float(T-dt)+1.0e-10):
             writer.writerow(row)
     
     if mesh.comm.rank == 0:
-        print(RED % f"t={float(t)}, energy={energy}, fluidHelicity={helicity_f}, crossHelicity={helicity_c}, magneticHelicity={helicity_m}, divu={divu}, divB={divB}")
+        print(RED % f"t={float(t)}, energy={energy}, crossHelicity={helicity_c}, magneticHelicity={helicity_m}, divu={divu}, divB={divB}")
     pvd.write(u_sol, p_sol, w_sol, A_sol, B_sol, time=float(t))
 
     z1_prev.assign(z1)
