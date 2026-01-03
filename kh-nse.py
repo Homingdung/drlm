@@ -75,7 +75,7 @@ def v_grad(x):
 
 delta0 = 1/28
 u_0 = as_vector([tanh((2 * y-1)/delta0), 0])
-psi = 0.001 * exp(-(y-0.5)**2/delta0) * (cos(8*pi*x) + cos(20*pi*x))
+psi = 0.001 * exp(-(y-0.5)**2/delta0**2) * (cos(8*pi*x) + cos(20*pi*x))
 u_per = v_grad(psi)
 u_ex = u_0 + u_per
 
